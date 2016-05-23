@@ -1,0 +1,402 @@
+Using linear models in data analysis
+========================================================
+author: Willi Weber
+date: 24.5.2016
+autosize: true
+
+outline
+========================================================
+```{r start,echo=FALSE,results="hide"}
+getwd()
+```
+- how to make your result a reproducible research?
+- tools like rstudio combined with knitr or sweave available
+- if you found your way stick to it!
+- combine explaining text with programming steps.
+- measurements are the holy data stored separately best in a data base.
+- excel most common
+- git version control including the data into your projectfile
+
+objectives
+=================================================
+1. hierarchical data
+2. drug concentration effect on gene expression?
+2. target cells: culture - in vivo
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Introduction
+========================================================
+
+- my experience within molecular biology
+- my conclusion: use simpliest possible statistics
+- leads to
+ + exploratory data analysis
+ + linear models
+ + barplots
+- anova often used in molecular biology
+
+Analysis of variance
+===============================================
+
+- continous response related to classification factors aov
+- + additionally to a continous covariate lme
+
+Analysis of variance:
+$$y_{i,j} = \beta_i + \epsilon_{i,j}, i=1 \dots M; j=1 \dots n_i$$
+
+$$y_{i,j} = \overline{\beta}+ (\beta_i - \overline{\beta}) + \epsilon_{i,j}$$
+
+Analysis of covariance:
+$$y_{i,j} = \beta_1 + b_i + \beta_2 x_{i,j} + \epsilon_{i,j}, i=1 \dots M; j=1 \dots n_i$$
+$$ b_i \~ N(0,\sigma_b^2),  \epsilon_{i,j} \~ N(0,\sigma^2)$$
+
+
+Simulate ANOVA
+====================================================
+
+## Introduction 
+- continous response ~ one factor (n levels)
+- anova, $F_{value} = \frac{between}{within}$ group variance
+- aov, linear model (lm)
+
+R data.frame with between group data
+===================================================
+### single observation per subject ID
+<small>
+```{r rway}
+nid<-3 # n per group
+wtm<-c(male=80,female=60,boys=40,girls=38)
+wtOmega<-0.15
+groups<-factor(rep(names(wtm),each=nid),levels=names(wtm))
+dd<-data.frame(ID=as.factor(seq(along=groups)),groups)
+set.seed(2052016)
+dd$WT<-wtm[groups]*exp(wtOmega*rnorm(length(dd$ID)))
+g1<-dd
+summary(dd)
+```
+</small>
+
+one way ANOVA analysis
+================================================== 
+<small>
+```{r aov}
+summary(a1<-aov(WT ~ groups + Error(ID),data=dd))
+```
+</small>
+
+how to report the Anova results:
+====================================================
+“We performed a one-way independent samples ANOVA with weight (WT) as reponse and the 
+factor Group (four levels: males, females, boys, girls) as fixed effect and the random factor
+Subjects (ID). There was a significant effect of Group (F(3,8)= 21.86 , p<0.0001) on the response WT.”
+
+Anova using lm linear model
+=================================================
+<small>
+```{r lm}
+dd.lm<-lm(WT~groups,dd)
+ddlm.tab<-summary(dd.lm)
+names(ddlm.tab$fstat)[1]<-"F_value"
+coef(ddlm.tab)
+```
+</small>
+lm and aov result in same F_value `r ddlm.tab$fstat[1]`
+
+
+```{r step,echo=FALSE,eval=FALSE}
+g1<-dd
+females<-g1$WT[g1$groups=="female"]
+sum((females-mean(females))^2)
+
+sum(females^2)-sum(females)^2/3
+
+xm<-mean(females)
+sum(females)
+3*xm
+
+sum(females-mean(females))^2
+
+CF<-(sum(g1$WT))^2/length(g1$ID)
+total.ss<-sum(g1$WT^2)-CF
+total.ss
+
+ng<-summary(g1$groups)
+between.ss<-
+  (sum(g1$WT[g1$groups=="male"])^2)/ng["male"]+
+  (sum(g1$WT[g1$groups=="female"])^2)/ng["female"]+
+(sum(g1$WT[g1$groups=="boys"])^2)/ng["boys"]+
+  (sum(g1$WT[g1$groups=="girls"])^2)/ng["girls"]-CF
+between.ss
+within.ss<-total.ss-between.ss
+within.ss
+df.total<-length(g1$WT)-1
+df.between<-  length(levels(g1$groups))-1
+df.within<- df.total- df.between
+df.within
+
+total.ms<-total.ss/df.total
+between.ms<-between.ss/df.between
+within.ms<-within.ss/df.within
+Fvalue<-between.ms/within.ms
+Fvalue
+```
+
+
+Weight: repeated observation data
+=================================================
+
+```{r pressure,echo=FALSE}
+nobs<-3
+wtSigma<-0.1
+g1rep <- g1[rep(1:nrow(g1),each=nobs),]
+g1rep$WTi<-g1rep$WT*exp(wtSigma*rnorm(nrow(g1rep)))
+library(nlme)
+gd1<-groupedData(WTi~groups|ID,g1rep)
+plot(gd1)
+```
+two step method: 1. individual mean of 3 weights 2. lm using the means
+****
+```{r lplot,echo=FALSE}
+plot(update(gd1,log10(WTi)~groups|ID))
+
+```
+ problems with degrees of freedom and in case of unblanced data
+ 
+ 
+lme: compromise between lm and lmList
+==================================================
+between subject variability `r wtOmega`, residual error `r wtSigma` assumed 
+<small>
+```{r lme0,echo=FALSE,results="tex"}
+#summary(a3<-aov(WT ~ groups + Error(ID),data=gd1))
+gd1.lme<-lme(log(WTi)~groups-1,gd1,random=~1|ID)
+gd2.lme<-update(gd1.lme, .~groups)
+gd2.sum<-summary(gd2.lme)
+gd1.int<-intervals(gd1.lme)
+gd2.int<-intervals(gd2.lme)
+#names(gd1.int)
+(exp(gd1.int$fixed))
+gd1.int$reStruct
+gd1.int$sigma
+```
+</small>
+
+
+
+lme: male as reference, WT difference between male and female?
+===========================================
+<small>
+```{r lme,echo=FALSE}
+signif(gd2.sum$tTable,3)
+signif(gd2.int$fixed,3)
+```
+difference between male and female not significant (p=0.12)
+</small>  
+```
+difference between male and female not significant (p=0.12)
+</small>
+
+
+lme: girls as reference, WT difference between girls and boys?
+=================================================
+<small>
+```{r lme2,echo=FALSE}
+#contr.SAS(4)
+gd2.lme2<-update(gd2.lme,log(WTi)~C(groups,"contr.SAS"))
+#gd1.lme2
+#plot(gd1.lme2)
+signif(summary(gd2.lme2)$tTable,3)
+signif(intervals(gd2.lme2,level=.95)$fixed)
+```
+significant difference between girls and boys
+</small>
+
+growth of rats for three different diets
+=======================================================
+```{r ratdata}
+formula(BodyWeight)
+plot(BodyWeight,outer=T,aspect=3,key=F)
+head(bw0<-BodyWeight)
+#aov(BodyWeight)
+bw1<-subset(BodyWeight,Time<9)
+head(bw1)
+plot(bw1,aspect="fill")
+```
+
+lmList 
+======================================================
+```{r lmList}
+bw.lmlist<-lmList(BodyWeight)
+plot(intervals(bw.lmlist))
+```
+
+lme with interaction
+=========================================================
+```{r lmebw}
+bw0.lme<-lme(bw.lmlist)
+bw1.lme<-update(bw0.lme,.~Time*Diet)
+summary(bw1.lme)
+```
+lme with interaction,table
+====================================================
+
+```{r int2}
+summary(bw1.lme)$tTable
+```
+
+lme with interaction,residuals
+====================================================
+
+```{r int3}
+plot(bw1.lme)
+```
+
+using aov
+=============================================
+```{r aov2}
+summary(a3<-aov(weight ~ Diet*Time +Error(Rat),data=BodyWeight))
+```
+
+
+
+example: X-linked Adrenoleucodystrophy
+===========================================================
+![x-ALD disease](graphs/CellBild.jpg)
+- long chain fatty acids must cross the membrane by peroximal transporters to the metabolizing enzymes
+
+Work plan
+=================================================
+![x-ALD disease](graphs/Work-plan.jpg)
+
+ABCD1 defect damage monocytes
+===============================================
+![x-ALD disease](graphs/barPlots-ratio.jpg)
+****
+![x-ALD disease](graphs/Slide04.jpg)
+
+learnings
+================================================================
+- assay control samples
+- analyse study data together
+- excel serves as data base, statistic script and calculator
+- knitr additionally supports writing reproducible reports
+
+evaluation of candidate drugs to induce ABCD2 in monocytes
+==========================================================
+## assay calibration
+- experimental design: cellculture of THP1 monocyte cell line
+- linearized plasmids p1559
+- concentration determined using assay nanodrop
+- dilution sequence used as calibration samples
+
+read calibration data from excel
+============================================================
+
+```{r data,echo=FALSE,results="hide"}
+library('ProjectTemplate')
+load.project()
+dd<-read.xlsx("data/realtimeTHP1.1.xlsx", sheetIndex=4,startRow=70,endRow=80,colIndex=1:3)
+names(dd)[1]<-"SQ"
+dd$SQ[c(2,4,6,8,10)]<-dd$SQ[c(1,3,5,7,9)]
+#library(reshape2)
+dd.melt<-melt(id.vars="SQ",dd,variable.name = "Gene",value.name="TC")
+#dd.melt
+#head(dd.melt)
+#library(nlme)
+levels(dd.melt$Gene)
+relevel(dd.melt$Gene,"HPRT")
+calib<-groupedData(TC~SQ|factor(Gene),data=dd.melt)
+levels(calib$Gene)
+sapply(dd.melt,class)
+plot(calib,outer=~"assay",aspect=1)
+calibLog<-update(formula=TC~(log10(SQ)-3)|factor(Gene),subset(calib,!is.na(SQ)))
+#sapply(calibLog,class)
+
+
+```
+log transform -> linear model:
+***
+```{r calibLog,echo=FALSE}
+plot(calibLog,outer=~"assay",aspect=1)
+```
+ $TC \~(log10(SQ)-3)|Gene$ 
+
+
+
+linear regression separately for each gene 
+====================================================== 
+<small>
+```{r logScale,echo=FALSE}
+calibList<-lmList(TC~I(log10(SQ)-3),calibLog,na.action=na.omit)
+summary(calibList)
+```
+</small>
+same slope for both genes
+=====================================================
+```{r calplot,echo=FALSE}
+plot(calibList)
+```
+***
+```{r calplot2,echo=FALSE}
+plot(intervals(calibList))
+```
+
+linear model 
+==================================================
+```{r linearmodel,echo=FALSE}
+calibna<-subset(calibLog,!is.na(TC))
+calibna.lm1<-lm(TC~Gene+I(log10(SQ)-3),calibna,na.action=na.omit)
+calibna.lm1sum<-summary(calibna.lm1)
+calibna.lm2<-update(calibna.lm1,TC~Gene*I(log10(SQ)-3))
+anova(calibna.lm1,calibna.lm2)
+```
+
+same slope for both genes
+
+
+Result
+=======================================================
+<small>
+```{r result,echo=FALSE}
+sig3<-function(x,n=3) signif(x,n)
+sig3(coef(calibna.lm1sum))
+```
+</small>
+
+$GeneABCD2=\frac{ABCD2}{HPRT}$
+
+
+Conclusion
+=====================================================
+- parallel calibration lines with different intercept for HPRT and ABCD2
+- i.e. the ratio ABCD2/HPRT remains constant - as expected after preparing the cDNA standards by diluting a single linearized plasmid sample
+
+
+summary
+===============================================
+
+- duplicate measurements of each gene for each PCR cell-sample obtained from different subjects
+- for all genes the residuals are asumed to be identical independ distributed (iid)
+- between subject variability for all genes
+- linear mixed effect analysis offers a maximum of degees of freedom
+
+
+
+
+technical slide
+==============================================
+For more details on authoring R presentations please visit <https://support.rstudio.com/hc/en-us/articles/200486468>.
+
+
+- http://askubuntu.com/questions/50170/how-to-convert-pdf-to-image/50180
+ + convert -density 150 input.pdf -quality 90 output.png
+
+```{r system,eval=FALSE}
+system("convert -density 150 input.pdf -quality 90 output.png")
+system("pandoc linModelSem.md --latex-engine=pdflatex -o linModelSem.pdf")
+```
+
